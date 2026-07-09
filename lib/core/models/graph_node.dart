@@ -13,6 +13,10 @@ class GraphNodePosition {
   final double x;
   final double y;
 
+  GraphNodePosition copyWith({double? x, double? y}) {
+    return GraphNodePosition(x: x ?? this.x, y: y ?? this.y);
+  }
+
   Map<String, Object?> toJson() {
     return <String, Object?>{'x': x, 'y': y};
   }
@@ -41,6 +45,13 @@ class GraphNodeSize {
 
   final double width;
   final double height;
+
+  GraphNodeSize copyWith({double? width, double? height}) {
+    return GraphNodeSize(
+      width: width ?? this.width,
+      height: height ?? this.height,
+    );
+  }
 
   Map<String, Object?> toJson() {
     return <String, Object?>{'width': width, 'height': height};
@@ -93,6 +104,26 @@ class GraphNode {
   final GraphNodePosition position;
   final GraphNodeSize size;
   final List<GraphPin> pins;
+
+  GraphNode copyWith({
+    String? id,
+    String? nodeType,
+    String? title,
+    String? description,
+    GraphNodePosition? position,
+    GraphNodeSize? size,
+    List<GraphPin>? pins,
+  }) {
+    return GraphNode(
+      id: id ?? this.id,
+      nodeType: nodeType ?? this.nodeType,
+      title: title ?? this.title,
+      description: description ?? this.description,
+      position: position ?? this.position,
+      size: size ?? this.size,
+      pins: pins ?? this.pins,
+    );
+  }
 
   Map<String, Object?> toJson() {
     return <String, Object?>{

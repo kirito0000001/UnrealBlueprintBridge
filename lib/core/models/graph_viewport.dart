@@ -21,6 +21,14 @@ class GraphViewport {
   final double offsetY;
   final double zoom;
 
+  GraphViewport copyWith({double? offsetX, double? offsetY, double? zoom}) {
+    return GraphViewport(
+      offsetX: offsetX ?? this.offsetX,
+      offsetY: offsetY ?? this.offsetY,
+      zoom: zoom ?? this.zoom,
+    );
+  }
+
   Map<String, Object?> toJson() {
     return <String, Object?>{
       'offsetX': offsetX,

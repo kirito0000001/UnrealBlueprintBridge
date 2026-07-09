@@ -34,6 +34,7 @@ docs/superpowers/
 .pub/
 /build/
 /coverage/
+/ReleaseAssets/
 
 # Symbolication related
 app.*.symbols

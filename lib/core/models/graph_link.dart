@@ -32,6 +32,28 @@ class GraphLink {
   final String description;
   final String linkType;
 
+  GraphLink copyWith({
+    String? id,
+    String? fromNodeId,
+    String? fromPinId,
+    String? toNodeId,
+    String? toPinId,
+    String? title,
+    String? description,
+    String? linkType,
+  }) {
+    return GraphLink(
+      id: id ?? this.id,
+      fromNodeId: fromNodeId ?? this.fromNodeId,
+      fromPinId: fromPinId ?? this.fromPinId,
+      toNodeId: toNodeId ?? this.toNodeId,
+      toPinId: toPinId ?? this.toPinId,
+      title: title ?? this.title,
+      description: description ?? this.description,
+      linkType: linkType ?? this.linkType,
+    );
+  }
+
   Map<String, Object?> toJson() {
     return <String, Object?>{
       'id': id,
