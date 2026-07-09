@@ -61,14 +61,21 @@ blueprint-bridge-update.json
 输出目录默认是：
 
 ```text
-ReleaseAssets
+D:\DabaoV\虚幻蓝图连结V版本
 ```
 
 输出内容：
 
+- `虚幻蓝图连结\`，可直接运行的 Windows 程序目录
 - `UnrealBlueprintBridge-v版本-win-x64.zip`
 - `UnrealBlueprintBridge-v版本-win-x64.sha256.txt`
 - `blueprint-bridge-update.json`
+
+如果临时需要输出到其他位置，可以传入：
+
+```powershell
+.\Scripts\打包Windows热更新.ps1 -Version 1.0.1 -ReleaseAssetRoot "D:\DabaoV\自定义目录" -DownloadBaseUrl "https://example.com/releases"
+```
 
 ## 程序内使用
 

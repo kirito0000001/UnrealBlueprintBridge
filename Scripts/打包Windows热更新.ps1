@@ -24,17 +24,45 @@ function Assert-VersionText {
     return $Value.Trim().TrimStart('v', 'V')
 }
 
+function Assert-Inside {
+    param([string]$BasePath, [string]$ChildPath)
+    $baseFull = [System.IO.Path]::GetFullPath($BasePath).TrimEnd('\') + '\'
+    $childFull = [System.IO.Path]::GetFullPath($ChildPath)
+    if (!$childFull.StartsWith($baseFull, [System.StringComparison]::OrdinalIgnoreCase)) {
+        throw "路径越界：$childFull"
+    }
+}
+
+function Copy-DirectoryContents {
+    param([string]$SourceDir, [string]$DestinationDir)
+    $sourceFull = [System.IO.Path]::GetFullPath($SourceDir).TrimEnd('\')
+    $files = @(Get-ChildItem -LiteralPath $SourceDir -Recurse -Force)
+    foreach ($item in $files) {
+        $relative = $item.FullName.Substring($sourceFull.Length).TrimStart('\')
+        $target = Join-Path $DestinationDir $relative
+        Assert-Inside -BasePath $DestinationDir -ChildPath $target
+        if ($item.PSIsContainer) {
+            New-Item -ItemType Directory -Force -Path $target | Out-Null
+        } else {
+            New-Item -ItemType Directory -Force -Path (Split-Path -Parent $target) | Out-Null
+            Copy-Item -LiteralPath $item.FullName -Destination $target -Force
+        }
+    }
+}
+
 if ([string]::IsNullOrWhiteSpace($Version)) {
     $Version = Get-PubspecVersion
 }
 $Version = Assert-VersionText -Value $Version
 
 if ([string]::IsNullOrWhiteSpace($ReleaseAssetRoot)) {
-    $ReleaseAssetRoot = Join-Path $repoRoot "ReleaseAssets"
+    $ReleaseAssetRoot = Join-Path "D:\DabaoV" "虚幻蓝图连结V$Version"
 }
 
 $releaseDir = [System.IO.Path]::GetFullPath($ReleaseAssetRoot)
 New-Item -ItemType Directory -Force -Path $releaseDir | Out-Null
+$publishProgramDir = Join-Path $releaseDir "虚幻蓝图连结"
+Assert-Inside -BasePath $releaseDir -ChildPath $publishProgramDir
 
 Push-Location $repoRoot
 try {
@@ -59,13 +87,19 @@ $packageManifest = [ordered]@{
 }
 $packageManifest | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath (Join-Path $programDir "update-package.json") -Encoding UTF8
 
+if (Test-Path -LiteralPath $publishProgramDir) {
+    Remove-Item -LiteralPath $publishProgramDir -Recurse -Force
+}
+New-Item -ItemType Directory -Force -Path $publishProgramDir | Out-Null
+Copy-DirectoryContents -SourceDir $programDir -DestinationDir $publishProgramDir
+
 $zipName = "UnrealBlueprintBridge-v$Version-win-x64.zip"
 $zipPath = Join-Path $releaseDir $zipName
 $shaPath = Join-Path $releaseDir "UnrealBlueprintBridge-v$Version-win-x64.sha256.txt"
 $manifestPath = Join-Path $releaseDir "blueprint-bridge-update.json"
 if (Test-Path -LiteralPath $zipPath) { Remove-Item -LiteralPath $zipPath -Force }
 
-Compress-Archive -LiteralPath $programDir -DestinationPath $zipPath -Force
+Compress-Archive -LiteralPath $publishProgramDir -DestinationPath $zipPath -Force
 $sha = (Get-FileHash -LiteralPath $zipPath -Algorithm SHA256).Hash.ToLowerInvariant()
 "$sha  $zipName" | Set-Content -LiteralPath $shaPath -Encoding ASCII
 $zipSize = (Get-Item -LiteralPath $zipPath).Length
@@ -97,6 +131,7 @@ $manifest = [ordered]@{
 $manifest | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $manifestPath -Encoding UTF8
 
 Write-Host "Windows 热更新包已生成："
+Write-Host "  Program:  $publishProgramDir"
 Write-Host "  Zip:      $zipPath"
 Write-Host "  SHA-256:  $shaPath"
 Write-Host "  Manifest: $manifestPath"
