@@ -13,13 +13,19 @@ class AppUpdateService {
   static const stableKey = 'UnrealBlueprintBridge';
   static const runtime = 'win-x64';
   static const entryExe = 'unreal_blueprint_bridge.exe';
-  static const defaultManifestUrl = '';
+  static const defaultManifestUrl =
+      'https://github.com/kirito0000001/UnrealBlueprintBridge/releases/latest/download/blueprint-bridge-update.json';
   static const currentVersion = String.fromEnvironment(
     'APP_VERSION',
-    defaultValue: '1.0.0',
+    defaultValue: '1.0.1',
   );
 
   final HttpClient? _httpClient;
+
+  static String resolveManifestUrl(String manifestUrl) {
+    final trimmed = manifestUrl.trim();
+    return trimmed.isEmpty ? defaultManifestUrl : trimmed;
+  }
 
   Future<AppUpdateCheckResult> check({
     required String manifestUrl,
@@ -32,7 +38,8 @@ class AppUpdateService {
         message: '当前平台暂不使用 Windows 热更新。Android 后续应走应用商店或 Play In-App Updates。',
       );
     }
-    if (manifestUrl.trim().isEmpty) {
+    final effectiveManifestUrl = resolveManifestUrl(manifestUrl);
+    if (effectiveManifestUrl.isEmpty) {
       return AppUpdateCheckResult(
         hasUpdate: false,
         currentVersion: currentVersion,
@@ -41,7 +48,8 @@ class AppUpdateService {
     }
 
     final manifest = AppUpdateManifest.fromJson(
-      jsonDecode(await _getString(manifestUrl)) as Map<String, Object?>,
+      jsonDecode(await _getString(effectiveManifestUrl))
+          as Map<String, Object?>,
     );
     if (manifest.productKey != productKey) {
       return AppUpdateCheckResult(

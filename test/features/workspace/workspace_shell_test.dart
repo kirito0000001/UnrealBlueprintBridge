@@ -96,4 +96,20 @@ void main() {
     expect(source, contains("_SidebarDraftCommand.openFolder => '打开文件夹'"));
     expect(source, contains("_SidebarDraftCommand.delete => '删除蓝图'"));
   });
+
+  test('Global settings uses a built-in update source by default', () {
+    final source = File(
+      'lib/features/workspace/workspace_shell.dart',
+    ).readAsStringSync();
+    final settingsSource = source.substring(
+      source.indexOf('class _GlobalSettingsDialog'),
+      source.indexOf('class _ProjectWorkspacePage'),
+    );
+
+    expect(settingsSource, contains("label: '更新源'"));
+    expect(settingsSource, contains('默认使用 GitHub Release'));
+    expect(settingsSource, contains("labelText: '自定义更新清单 URL'"));
+    expect(settingsSource, contains('AppUpdateService.resolveManifestUrl'));
+    expect(settingsSource, isNot(contains("labelText: '更新清单 URL'")));
+  });
 }

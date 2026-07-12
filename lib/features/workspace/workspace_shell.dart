@@ -1616,16 +1616,38 @@ class _GlobalSettingsDialogState extends State<_GlobalSettingsDialog> {
               ).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w800),
             ),
             const SizedBox(height: 10),
-            TextField(
-              controller: _updateManifestController,
-              decoration: const InputDecoration(
-                labelText: '更新清单 URL',
-                helperText:
-                    'Windows 版本使用 zip + SHA-256 + 外部覆盖脚本；Android 后续走应用商店更新。',
-                border: OutlineInputBorder(),
-              ),
-              minLines: 1,
-              maxLines: 2,
+            _SettingsInfoTile(
+              icon: Icons.system_update_alt,
+              label: '更新源',
+              value: '默认使用 GitHub Release。平时不需要填写地址，直接点击检查更新即可。',
+            ),
+            const SizedBox(height: 8),
+            ExpansionTile(
+              tilePadding: EdgeInsets.zero,
+              childrenPadding: EdgeInsets.zero,
+              title: const Text('高级选项'),
+              subtitle: const Text('仅在切换测试源或临时清单时填写'),
+              children: [
+                TextField(
+                  controller: _updateManifestController,
+                  decoration: const InputDecoration(
+                    labelText: '自定义更新清单 URL',
+                    helperText: '留空时使用内置默认源；Windows 使用 zip + SHA-256 + 外部覆盖脚本。',
+                    border: OutlineInputBorder(),
+                  ),
+                  minLines: 1,
+                  maxLines: 2,
+                ),
+                const SizedBox(height: 8),
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: TextButton.icon(
+                    onPressed: () => setState(_updateManifestController.clear),
+                    icon: const Icon(Icons.restart_alt),
+                    label: const Text('恢复默认源'),
+                  ),
+                ),
+              ],
             ),
             const SizedBox(height: 10),
             Row(
@@ -1684,7 +1706,7 @@ class _GlobalSettingsDialogState extends State<_GlobalSettingsDialog> {
     });
     try {
       final result = await widget.updateService.check(
-        manifestUrl: _updateManifestController.text.trim(),
+        manifestUrl: _effectiveUpdateManifestUrl(),
         currentVersion: _currentAppVersion(),
       );
       if (!mounted) {
@@ -1765,13 +1787,22 @@ class _GlobalSettingsDialogState extends State<_GlobalSettingsDialog> {
   String _currentAppVersion() {
     return AppUpdateService.currentVersion;
   }
+
+  String _effectiveUpdateManifestUrl() {
+    return AppUpdateService.resolveManifestUrl(_updateManifestController.text);
+  }
 }
 
 class _SettingsInfoTile extends StatelessWidget {
-  const _SettingsInfoTile({required this.label, required this.value});
+  const _SettingsInfoTile({
+    required this.label,
+    required this.value,
+    this.icon = Icons.menu_book_outlined,
+  });
 
   final String label;
   final String value;
+  final IconData icon;
 
   @override
   Widget build(BuildContext context) {
@@ -1786,7 +1817,7 @@ class _SettingsInfoTile extends StatelessWidget {
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Icon(Icons.menu_book_outlined, color: Color(0xFF2563EB)),
+            Icon(icon, color: const Color(0xFF2563EB)),
             const SizedBox(width: 10),
             Expanded(
               child: Column(
