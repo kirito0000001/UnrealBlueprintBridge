@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -15,9 +16,10 @@ class AppUpdateService {
   static const entryExe = 'unreal_blueprint_bridge.exe';
   static const defaultManifestUrl =
       'https://github.com/kirito0000001/UnrealBlueprintBridge/releases/latest/download/blueprint-bridge-update.json';
+  static const networkTimeout = Duration(seconds: 8);
   static const currentVersion = String.fromEnvironment(
     'APP_VERSION',
-    defaultValue: '1.0.1',
+    defaultValue: '1.0.2',
   );
 
   final HttpClient? _httpClient;
@@ -188,13 +190,21 @@ class AppUpdateService {
 
   Future<String> _getString(String url) async {
     final client = _httpClient ?? HttpClient();
-    final request = await client.getUrl(Uri.parse(url));
+    final request = await _waitForNetwork(
+      client.getUrl(Uri.parse(url)),
+      '连接更新服务器',
+    );
     request.headers.set(HttpHeaders.userAgentHeader, 'UnrealBlueprintBridge');
-    final response = await request.close();
+    final response = await _waitForNetwork(request.close(), '等待更新服务器响应');
     if (response.statusCode < 200 || response.statusCode >= 300) {
       throw HttpException('更新清单请求失败：HTTP ${response.statusCode}');
     }
-    return utf8.decode(await consolidateHttpClientResponseBytes(response));
+    return utf8.decode(
+      await _waitForNetwork(
+        consolidateHttpClientResponseBytes(response),
+        '读取更新清单',
+      ),
+    );
   }
 
   Future<void> _downloadFile(
@@ -204,9 +214,12 @@ class AppUpdateService {
     void Function(double progress, String message)? onProgress,
   ) async {
     final client = _httpClient ?? HttpClient();
-    final request = await client.getUrl(Uri.parse(url));
+    final request = await _waitForNetwork(
+      client.getUrl(Uri.parse(url)),
+      '连接更新服务器',
+    );
     request.headers.set(HttpHeaders.userAgentHeader, 'UnrealBlueprintBridge');
-    final response = await request.close();
+    final response = await _waitForNetwork(request.close(), '等待更新服务器响应');
     if (response.statusCode < 200 || response.statusCode >= 300) {
       throw HttpException('更新包下载失败：HTTP ${response.statusCode}');
     }
@@ -214,7 +227,7 @@ class AppUpdateService {
     var downloaded = 0;
     final sink = file.openWrite();
     try {
-      await for (final chunk in response) {
+      await for (final chunk in response.timeout(networkTimeout)) {
         downloaded += chunk.length;
         sink.add(chunk);
         if (expectedSize > 0) {
@@ -228,6 +241,13 @@ class AppUpdateService {
     } finally {
       await sink.close();
     }
+  }
+
+  Future<T> _waitForNetwork<T>(Future<T> operation, String action) {
+    return operation.timeout(
+      networkTimeout,
+      onTimeout: () => throw TimeoutException('$action超时，请检查网络后重试。'),
+    );
   }
 
   Future<String> _sha256(File file) async {
