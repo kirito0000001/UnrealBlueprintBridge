@@ -1548,17 +1548,9 @@ class _GlobalSettingsDialog extends StatefulWidget {
 
 class _GlobalSettingsDialogState extends State<_GlobalSettingsDialog> {
   late String _engineNodeBookId = widget.settings.engineNodeBookId;
-  late final TextEditingController _updateManifestController =
-      TextEditingController(text: widget.settings.updateManifestUrl);
   AppUpdateCheckResult? _updateResult;
   double? _updateProgress;
   bool _isCheckingUpdate = false;
-
-  @override
-  void dispose() {
-    _updateManifestController.dispose();
-    super.dispose();
-  }
 
   @override
   Widget build(BuildContext context) {
@@ -1621,34 +1613,6 @@ class _GlobalSettingsDialogState extends State<_GlobalSettingsDialog> {
               label: '更新源',
               value: '默认使用 GitHub Release。平时不需要填写地址，直接点击检查更新即可。',
             ),
-            const SizedBox(height: 8),
-            ExpansionTile(
-              tilePadding: EdgeInsets.zero,
-              childrenPadding: EdgeInsets.zero,
-              title: const Text('高级选项'),
-              subtitle: const Text('仅在切换测试源或临时清单时填写'),
-              children: [
-                TextField(
-                  controller: _updateManifestController,
-                  decoration: const InputDecoration(
-                    labelText: '自定义更新清单 URL',
-                    helperText: '留空时使用内置默认源；Windows 使用 zip + SHA-256 + 外部覆盖脚本。',
-                    border: OutlineInputBorder(),
-                  ),
-                  minLines: 1,
-                  maxLines: 2,
-                ),
-                const SizedBox(height: 8),
-                Align(
-                  alignment: Alignment.centerLeft,
-                  child: TextButton.icon(
-                    onPressed: () => setState(_updateManifestController.clear),
-                    icon: const Icon(Icons.restart_alt),
-                    label: const Text('恢复默认源'),
-                  ),
-                ),
-              ],
-            ),
             const SizedBox(height: 10),
             Row(
               children: [
@@ -1684,12 +1648,9 @@ class _GlobalSettingsDialogState extends State<_GlobalSettingsDialog> {
         ),
         FilledButton.icon(
           onPressed: () {
-            Navigator.of(context).pop(
-              BridgeAppSettings(
-                engineNodeBookId: _engineNodeBookId,
-                updateManifestUrl: _updateManifestController.text.trim(),
-              ),
-            );
+            Navigator.of(
+              context,
+            ).pop(BridgeAppSettings(engineNodeBookId: _engineNodeBookId));
           },
           icon: const Icon(Icons.check),
           label: const Text('保存'),
@@ -1706,7 +1667,7 @@ class _GlobalSettingsDialogState extends State<_GlobalSettingsDialog> {
     });
     try {
       final result = await widget.updateService.check(
-        manifestUrl: _effectiveUpdateManifestUrl(),
+        manifestUrl: AppUpdateService.defaultManifestUrl,
         currentVersion: _currentAppVersion(),
       );
       if (!mounted) {
@@ -1786,10 +1747,6 @@ class _GlobalSettingsDialogState extends State<_GlobalSettingsDialog> {
 
   String _currentAppVersion() {
     return AppUpdateService.currentVersion;
-  }
-
-  String _effectiveUpdateManifestUrl() {
-    return AppUpdateService.resolveManifestUrl(_updateManifestController.text);
   }
 }
 

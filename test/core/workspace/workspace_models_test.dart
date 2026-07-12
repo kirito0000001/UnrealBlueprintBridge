@@ -71,19 +71,12 @@ void main() {
           lastWorkspaceId: '',
           recentWorkspaces: [],
         ).copyWith(
-          settings: const BridgeAppSettings(
-            engineNodeBookId: 'unreal_5_6',
-            updateManifestUrl: 'https://example.com/update.json',
-          ),
+          settings: const BridgeAppSettings(engineNodeBookId: 'unreal_5_6'),
         );
 
     final decoded = BridgeAppState.fromJson(state.toJson());
 
     expect(decoded.settings.engineNodeBookId, 'unreal_5_6');
-    expect(
-      decoded.settings.updateManifestUrl,
-      'https://example.com/update.json',
-    );
   });
 
   test('BridgeAppState binds desktop Unreal project as current workspace', () {

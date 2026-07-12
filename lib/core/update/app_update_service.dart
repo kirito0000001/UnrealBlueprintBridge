@@ -7,7 +7,12 @@ import 'package:flutter/foundation.dart';
 import 'app_update_models.dart';
 
 class AppUpdateService {
-  const AppUpdateService({this._httpClient});
+  const AppUpdateService({
+    HttpClient? httpClient,
+    Future<String?> Function()? windowsProxyResolver,
+  }) : this._(httpClient, windowsProxyResolver);
+
+  const AppUpdateService._(this._httpClient, this._windowsProxyResolver);
 
   static const productKey = 'unreal-blueprint-bridge';
   static const displayName = '虚幻：蓝图连结';
@@ -19,10 +24,11 @@ class AppUpdateService {
   static const networkTimeout = Duration(seconds: 8);
   static const currentVersion = String.fromEnvironment(
     'APP_VERSION',
-    defaultValue: '1.0.2',
+    defaultValue: '1.0.3',
   );
 
   final HttpClient? _httpClient;
+  final Future<String?> Function()? _windowsProxyResolver;
 
   static String resolveManifestUrl(String manifestUrl) {
     final trimmed = manifestUrl.trim();
@@ -189,22 +195,29 @@ class AppUpdateService {
   }
 
   Future<String> _getString(String url) async {
-    final client = _httpClient ?? HttpClient();
-    final request = await _waitForNetwork(
-      client.getUrl(Uri.parse(url)),
-      '连接更新服务器',
-    );
-    request.headers.set(HttpHeaders.userAgentHeader, 'UnrealBlueprintBridge');
-    final response = await _waitForNetwork(request.close(), '等待更新服务器响应');
-    if (response.statusCode < 200 || response.statusCode >= 300) {
-      throw HttpException('更新清单请求失败：HTTP ${response.statusCode}');
+    final ownsClient = _httpClient == null;
+    final client = _httpClient ?? await _createHttpClient();
+    try {
+      final request = await _waitForNetwork(
+        client.getUrl(Uri.parse(url)),
+        '连接更新服务器',
+      );
+      request.headers.set(HttpHeaders.userAgentHeader, 'UnrealBlueprintBridge');
+      final response = await _waitForNetwork(request.close(), '等待更新服务器响应');
+      if (response.statusCode < 200 || response.statusCode >= 300) {
+        throw HttpException('更新清单请求失败：HTTP ${response.statusCode}');
+      }
+      return utf8.decode(
+        await _waitForNetwork(
+          consolidateHttpClientResponseBytes(response),
+          '读取更新清单',
+        ),
+      );
+    } finally {
+      if (ownsClient) {
+        client.close(force: true);
+      }
     }
-    return utf8.decode(
-      await _waitForNetwork(
-        consolidateHttpClientResponseBytes(response),
-        '读取更新清单',
-      ),
-    );
   }
 
   Future<void> _downloadFile(
@@ -213,34 +226,106 @@ class AppUpdateService {
     int expectedSize,
     void Function(double progress, String message)? onProgress,
   ) async {
-    final client = _httpClient ?? HttpClient();
-    final request = await _waitForNetwork(
-      client.getUrl(Uri.parse(url)),
-      '连接更新服务器',
-    );
-    request.headers.set(HttpHeaders.userAgentHeader, 'UnrealBlueprintBridge');
-    final response = await _waitForNetwork(request.close(), '等待更新服务器响应');
-    if (response.statusCode < 200 || response.statusCode >= 300) {
-      throw HttpException('更新包下载失败：HTTP ${response.statusCode}');
-    }
-
-    var downloaded = 0;
-    final sink = file.openWrite();
+    final ownsClient = _httpClient == null;
+    final client = _httpClient ?? await _createHttpClient();
     try {
-      await for (final chunk in response.timeout(networkTimeout)) {
-        downloaded += chunk.length;
-        sink.add(chunk);
-        if (expectedSize > 0) {
-          final ratio = downloaded / expectedSize;
-          onProgress?.call(
-            0.05 + ratio.clamp(0, 1) * 0.76,
-            '正在下载更新包 ${(ratio * 100).clamp(0, 100).toStringAsFixed(0)}%',
-          );
+      final request = await _waitForNetwork(
+        client.getUrl(Uri.parse(url)),
+        '连接更新服务器',
+      );
+      request.headers.set(HttpHeaders.userAgentHeader, 'UnrealBlueprintBridge');
+      final response = await _waitForNetwork(request.close(), '等待更新服务器响应');
+      if (response.statusCode < 200 || response.statusCode >= 300) {
+        throw HttpException('更新包下载失败：HTTP ${response.statusCode}');
+      }
+
+      var downloaded = 0;
+      final sink = file.openWrite();
+      try {
+        await for (final chunk in response.timeout(networkTimeout)) {
+          downloaded += chunk.length;
+          sink.add(chunk);
+          if (expectedSize > 0) {
+            final ratio = downloaded / expectedSize;
+            onProgress?.call(
+              0.05 + ratio.clamp(0, 1) * 0.76,
+              '正在下载更新包 ${(ratio * 100).clamp(0, 100).toStringAsFixed(0)}%',
+            );
+          }
         }
+      } finally {
+        await sink.close();
       }
     } finally {
-      await sink.close();
+      if (ownsClient) {
+        client.close(force: true);
+      }
     }
+  }
+
+  Future<HttpClient> _createHttpClient() async {
+    final client = HttpClient();
+    final proxySetting =
+        await (_windowsProxyResolver ?? _readWindowsSystemProxy)();
+    final directive = proxyDirectiveForWindowsSetting(proxySetting);
+    if (directive != null) {
+      client.findProxy = (_) => directive;
+    }
+    return client;
+  }
+
+  static Future<String?> _readWindowsSystemProxy() async {
+    if (!Platform.isWindows) {
+      return null;
+    }
+    try {
+      final result = await Process.run('reg.exe', [
+        'query',
+        r'HKCU\Software\Microsoft\Windows\CurrentVersion\Internet Settings',
+      ]);
+      if (result.exitCode != 0) {
+        return null;
+      }
+      final output = result.stdout.toString();
+      final enabled = RegExp(
+        r'ProxyEnable\s+REG_DWORD\s+0x(?<value>[0-9a-fA-F]+)',
+      ).firstMatch(output);
+      if (enabled == null ||
+          int.parse(enabled.namedGroup('value')!, radix: 16) == 0) {
+        return null;
+      }
+      return RegExp(
+        r'ProxyServer\s+REG_SZ\s+(?<value>.+)',
+      ).firstMatch(output)?.namedGroup('value')?.trim();
+    } catch (_) {
+      return null;
+    }
+  }
+
+  static String? proxyDirectiveForWindowsSetting(String? proxySetting) {
+    final rawValue = proxySetting?.trim() ?? '';
+    if (rawValue.isEmpty) {
+      return null;
+    }
+    final entries = rawValue.split(';');
+    String? selected;
+    for (final entry in entries) {
+      final separator = entry.indexOf('=');
+      if (separator > 0 &&
+          entry.substring(0, separator).trim().toLowerCase() == 'https') {
+        selected = entry.substring(separator + 1).trim();
+        break;
+      }
+    }
+    selected ??= entries.first.trim();
+    if (selected.contains('=')) {
+      selected = selected.substring(selected.indexOf('=') + 1).trim();
+    }
+    selected = selected.replaceFirst(
+      RegExp(r'^https?://', caseSensitive: false),
+      '',
+    );
+    return selected.isEmpty ? null : 'PROXY $selected; DIRECT';
   }
 
   Future<T> _waitForNetwork<T>(Future<T> operation, String action) {

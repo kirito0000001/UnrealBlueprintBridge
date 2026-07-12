@@ -108,26 +108,18 @@ class WorkspaceSummary {
 }
 
 class BridgeAppSettings {
-  const BridgeAppSettings({
-    this.engineNodeBookId = 'unreal_5_6',
-    this.updateManifestUrl = '',
-  });
+  const BridgeAppSettings({this.engineNodeBookId = 'unreal_5_6'});
 
   factory BridgeAppSettings.fromJson(Map<String, Object?> json) {
     return BridgeAppSettings(
       engineNodeBookId: json['engineNodeBookId'] as String? ?? 'unreal_5_6',
-      updateManifestUrl: json['updateManifestUrl'] as String? ?? '',
     );
   }
 
   final String engineNodeBookId;
-  final String updateManifestUrl;
 
   Map<String, Object?> toJson() {
-    return <String, Object?>{
-      'engineNodeBookId': engineNodeBookId,
-      'updateManifestUrl': updateManifestUrl,
-    };
+    return <String, Object?>{'engineNodeBookId': engineNodeBookId};
   }
 }
 
