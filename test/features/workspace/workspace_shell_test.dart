@@ -112,4 +112,36 @@ void main() {
     expect(settingsSource, isNot(contains('自定义更新清单 URL')));
     expect(settingsSource, isNot(contains('updateManifestUrl')));
   });
+
+  test('Project entry shows the running version and guards release tools', () {
+    final source = File(
+      'lib/features/workspace/workspace_shell.dart',
+    ).readAsStringSync();
+    final actionsSource = source.substring(
+      source.indexOf('class _WorkspaceActionsPanel'),
+      source.indexOf('class _ActionTile'),
+    );
+
+    expect(actionsSource, contains('AppUpdateService.currentVersion'));
+    expect(
+      actionsSource,
+      contains('DeveloperReleaseService.isReleaseToolsEnabled'),
+    );
+    expect(actionsSource, contains('制作发布版本'));
+    expect(actionsSource, contains('开发构建'));
+  });
+
+  test('Developer release dialog keeps long publishing logs scrollable', () {
+    final source = File(
+      'lib/features/workspace/workspace_shell.dart',
+    ).readAsStringSync();
+    final dialogSource = source.substring(
+      source.indexOf('class _DeveloperReleaseDialog'),
+      source.indexOf('class _SettingsInfoTile'),
+    );
+
+    expect(dialogSource, contains('height: 560'));
+    expect(dialogSource, contains('SingleChildScrollView'));
+    expect(dialogSource, contains('height: 160'));
+  });
 }

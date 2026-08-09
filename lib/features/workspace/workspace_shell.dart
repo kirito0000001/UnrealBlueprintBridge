@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 
 import '../../core/models/graph_document.dart';
 import '../../core/update/app_update_models.dart';
+import '../../core/update/developer_release_service.dart';
 import '../../core/update/app_update_service.dart';
 import '../../core/workspace/ai_graph_prompt_builder.dart';
 import '../../core/workspace/blueprint_bridge_graph_package_service.dart';
@@ -1269,13 +1270,62 @@ class _WorkspaceActionsPanel extends StatelessWidget {
               subtitle: '配置工作区、导入路径和通用偏好',
               onTap: onOpenSettings,
             ),
-            const Spacer(),
-            Text(
-              'PC: Saved/BlueprintBridge\nAndroid: 应用私有工作区',
-              style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                color: const Color(0xFF526276),
-                height: 1.5,
+            if (DeveloperReleaseService.isReleaseToolsEnabled)
+              _ActionTile(
+                icon: Icons.publish_outlined,
+                title: '制作发布版本',
+                subtitle: '打包 Windows 更新包并上传 GitHub Release',
+                onTap: () {
+                  showDialog<void>(
+                    context: context,
+                    builder: (context) => const _DeveloperReleaseDialog(),
+                  );
+                },
               ),
+            const Spacer(),
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Wrap(
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  spacing: 8,
+                  children: [
+                    Text(
+                      '版本 ${AppUpdateService.currentVersion}',
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: const Color(0xFF526276),
+                      ),
+                    ),
+                    if (DeveloperReleaseService.isReleaseToolsEnabled)
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 7,
+                          vertical: 2,
+                        ),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFE0ECFF),
+                          borderRadius: BorderRadius.circular(5),
+                        ),
+                        child: Text(
+                          '开发构建',
+                          style: Theme.of(context).textTheme.labelSmall
+                              ?.copyWith(
+                                color: const Color(0xFF1D4ED8),
+                                fontWeight: FontWeight.w700,
+                              ),
+                        ),
+                      ),
+                  ],
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  'PC: Saved/BlueprintBridge\nAndroid: 应用私有工作区',
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: const Color(0xFF526276),
+                    height: 1.5,
+                  ),
+                ),
+              ],
             ),
           ],
         ),
@@ -1747,6 +1797,163 @@ class _GlobalSettingsDialogState extends State<_GlobalSettingsDialog> {
 
   String _currentAppVersion() {
     return AppUpdateService.currentVersion;
+  }
+}
+
+class _DeveloperReleaseDialog extends StatefulWidget {
+  const _DeveloperReleaseDialog();
+
+  @override
+  State<_DeveloperReleaseDialog> createState() =>
+      _DeveloperReleaseDialogState();
+}
+
+class _DeveloperReleaseDialogState extends State<_DeveloperReleaseDialog> {
+  final DeveloperReleaseService _service = const DeveloperReleaseService();
+  late final TextEditingController _versionController = TextEditingController(
+    text: DeveloperReleaseService.nextPatchVersion(
+      AppUpdateService.currentVersion,
+    ),
+  );
+  final TextEditingController _notesController = TextEditingController();
+  final List<String> _logs = [];
+  bool _confirmed = false;
+  bool _isPublishing = false;
+  String? _status;
+
+  @override
+  void dispose() {
+    _versionController.dispose();
+    _notesController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _publish() async {
+    final version = _versionController.text.trim();
+    if (!DeveloperReleaseService.isValidVersion(version)) {
+      setState(() => _status = '版本号应为 1.2.3 或 1.2.3-beta.1。');
+      return;
+    }
+    setState(() {
+      _isPublishing = true;
+      _status = '正在打包并上传...';
+      _logs.clear();
+    });
+    try {
+      final result = await _service.publish(
+        version: version,
+        releaseNotes: _notesController.text,
+        onLog: (line) {
+          if (!mounted) {
+            return;
+          }
+          setState(() => _logs.add(line));
+        },
+      );
+      if (!mounted) {
+        return;
+      }
+      setState(
+        () => _status = '发布完成：v${result.version}\n${result.releaseDirectory}',
+      );
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      setState(() => _status = '发布失败：$error');
+    } finally {
+      if (mounted) {
+        setState(() => _isPublishing = false);
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('制作发布版本'),
+      content: SizedBox(
+        width: 620,
+        height: 560,
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              TextField(
+                controller: _versionController,
+                enabled: !_isPublishing,
+                decoration: const InputDecoration(
+                  labelText: '发布版本',
+                  helperText: '将生成 Windows 更新包并创建同名 GitHub Release。',
+                  border: OutlineInputBorder(),
+                ),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: _notesController,
+                enabled: !_isPublishing,
+                minLines: 3,
+                maxLines: 5,
+                decoration: const InputDecoration(
+                  labelText: '更新说明',
+                  border: OutlineInputBorder(),
+                ),
+              ),
+              CheckboxListTile(
+                contentPadding: EdgeInsets.zero,
+                value: _confirmed,
+                onChanged: _isPublishing
+                    ? null
+                    : (value) => setState(() => _confirmed = value ?? false),
+                title: const Text('确认创建 GitHub Release 并上传更新包'),
+              ),
+              if (_status != null) ...[
+                const SizedBox(height: 8),
+                _SettingsInfoTile(
+                  icon: _status!.startsWith('发布失败')
+                      ? Icons.error_outline
+                      : Icons.info_outline,
+                  label: '发布状态',
+                  value: _status!,
+                ),
+              ],
+              if (_logs.isNotEmpty) ...[
+                const SizedBox(height: 10),
+                Container(
+                  height: 160,
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFF1F5F9),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: SingleChildScrollView(
+                    child: SelectableText(
+                      _logs.join('\n'),
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        fontFamily: 'Consolas',
+                        color: const Color(0xFF334155),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ],
+          ),
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: _isPublishing ? null : () => Navigator.of(context).pop(),
+          child: const Text('关闭'),
+        ),
+        FilledButton.icon(
+          onPressed: _isPublishing || !_confirmed ? null : _publish,
+          icon: const Icon(Icons.publish_outlined),
+          label: Text(_isPublishing ? '发布中' : '打包并上传'),
+        ),
+      ],
+    );
   }
 }
 

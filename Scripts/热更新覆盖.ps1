@@ -5,7 +5,8 @@
     [Parameter(Mandatory = $true)][string]$ExpectedSha256,
     [Parameter(Mandatory = $true)][string]$ExeRelativePath,
     [Parameter(Mandatory = $true)][string]$ToolboxStableKey,
-    [Parameter(Mandatory = $true)][string]$TargetVersion
+    [Parameter(Mandatory = $true)][string]$TargetVersion,
+    [string]$ReadySignalPath = ""
 )
 
 $ErrorActionPreference = "Stop"
@@ -43,6 +44,35 @@ function Copy-DirectoryContents {
     }
 }
 
+function Get-FileSha256 {
+    param([string]$Path)
+
+    $stream = [System.IO.File]::OpenRead($Path)
+    $algorithm = [System.Security.Cryptography.SHA256]::Create()
+    try {
+        $hashBytes = $algorithm.ComputeHash($stream)
+        return [System.BitConverter]::ToString($hashBytes).Replace("-", "").ToLowerInvariant()
+    } finally {
+        $algorithm.Dispose()
+        $stream.Dispose()
+    }
+}
+
+function Write-ReadySignal {
+    param([string]$State, [string]$Message)
+
+    if ([string]::IsNullOrWhiteSpace($ReadySignalPath)) {
+        return
+    }
+    $signalFull = [System.IO.Path]::GetFullPath($ReadySignalPath)
+    New-Item -ItemType Directory -Force -Path (Split-Path -Parent $signalFull) | Out-Null
+    @(
+        $State
+        "time=$((Get-Date).ToString('o'))"
+        "message=$Message"
+    ) | Set-Content -LiteralPath $signalFull -Encoding UTF8
+}
+
 function Resolve-PackageSourceRoot {
     param([string]$StagingRoot, [string]$ToolboxStableKey, [string]$TargetVersion, [string]$EntryExe)
     $manifests = @(Get-ChildItem -LiteralPath $StagingRoot -Recurse -File -Filter "update-package.json")
@@ -71,7 +101,7 @@ try {
     Start-Transcript -LiteralPath (Join-Path $logRoot ("Update-{0:yyyyMMdd-HHmmss}.log" -f (Get-Date))) | Out-Null
 
     Write-Step 10 "校验更新包 SHA-256"
-    $actualSha = (Get-FileHash -LiteralPath $packageFull -Algorithm SHA256).Hash.ToLowerInvariant()
+    $actualSha = Get-FileSha256 -Path $packageFull
     if ($actualSha -ne $ExpectedSha256.ToLowerInvariant()) { throw "SHA-256 不一致：$actualSha" }
 
     $stagingRoot = Join-Path $env:LOCALAPPDATA (Join-Path $ToolboxStableKey "UpdateStaging")
@@ -82,11 +112,16 @@ try {
     Expand-Archive -LiteralPath $packageFull -DestinationPath $stagingRoot -Force
     $sourceRoot = Resolve-PackageSourceRoot -StagingRoot $stagingRoot -ToolboxStableKey $ToolboxStableKey -TargetVersion $TargetVersion -EntryExe $ExeRelativePath
 
+    Write-ReadySignal -State "READY" -Message "precheck-complete"
+
     Write-Step 48 "等待主程序退出"
-    $process = Get-Process -Id ([int]$AppProcessId) -ErrorAction SilentlyContinue
-    if ($null -ne $process) { $process.WaitForExit(30000) }
-    if ($null -ne (Get-Process -Id ([int]$AppProcessId) -ErrorAction SilentlyContinue)) {
-        throw "主程序未能在 30 秒内退出。"
+    $targetProcessId = [int]$AppProcessId
+    if ($targetProcessId -gt 0) {
+        $process = Get-Process -Id $targetProcessId -ErrorAction SilentlyContinue
+        if ($null -ne $process) { $process.WaitForExit(30000) }
+        if ($null -ne (Get-Process -Id $targetProcessId -ErrorAction SilentlyContinue)) {
+            throw "主程序未能在 30 秒内退出。"
+        }
     }
 
     Write-Step 58 "覆盖程序文件"
@@ -100,6 +135,7 @@ try {
     Start-Process -FilePath $exePath -WorkingDirectory $installFull
 }
 catch {
+    Write-ReadySignal -State "FAILED" -Message $_.Exception.Message
     Write-Host "更新失败：$($_.Exception.Message)" -ForegroundColor Red
     Write-Host "按 Enter 关闭。"
     try { [void][System.Console]::ReadLine() } catch {}

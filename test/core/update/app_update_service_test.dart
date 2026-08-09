@@ -116,4 +116,22 @@ void main() {
     },
     timeout: const Timeout(Duration(seconds: 10)),
   );
+
+  test('Windows updater waits for a ready signal and writes diagnostics', () {
+    final serviceSource = File(
+      'lib/core/update/app_update_service.dart',
+    ).readAsStringSync();
+    final updaterSource = File('Scripts/热更新覆盖.ps1').readAsStringSync();
+
+    expect(serviceSource, contains('_waitForUpdaterReady'));
+    expect(serviceSource, contains('UpdaterReady-'));
+    expect(serviceSource, contains('UpdateLogs'));
+    expect(serviceSource, isNot(contains('Get-FileHash')));
+    expect(serviceSource, contains('System.Security.Cryptography.SHA256'));
+    expect(updaterSource, contains('ReadySignalPath'));
+    expect(updaterSource, contains('Write-ReadySignal'));
+    expect(updaterSource, contains('function Get-FileSha256'));
+    expect(updaterSource, contains(r'if ($targetProcessId -gt 0)'));
+    expect(updaterSource, isNot(contains('Get-FileHash')));
+  });
 }

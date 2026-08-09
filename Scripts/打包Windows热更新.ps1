@@ -50,6 +50,20 @@ function Copy-DirectoryContents {
     }
 }
 
+function Get-FileSha256 {
+    param([string]$Path)
+
+    $stream = [System.IO.File]::OpenRead($Path)
+    $algorithm = [System.Security.Cryptography.SHA256]::Create()
+    try {
+        $hashBytes = $algorithm.ComputeHash($stream)
+        return [System.BitConverter]::ToString($hashBytes).Replace("-", "").ToLowerInvariant()
+    } finally {
+        $algorithm.Dispose()
+        $stream.Dispose()
+    }
+}
+
 if ([string]::IsNullOrWhiteSpace($Version)) {
     $Version = Get-PubspecVersion
 }
@@ -100,7 +114,7 @@ $manifestPath = Join-Path $releaseDir "blueprint-bridge-update.json"
 if (Test-Path -LiteralPath $zipPath) { Remove-Item -LiteralPath $zipPath -Force }
 
 Compress-Archive -LiteralPath $publishProgramDir -DestinationPath $zipPath -Force
-$sha = (Get-FileHash -LiteralPath $zipPath -Algorithm SHA256).Hash.ToLowerInvariant()
+$sha = Get-FileSha256 -Path $zipPath
 "$sha  $zipName" | Set-Content -LiteralPath $shaPath -Encoding ASCII
 $zipSize = (Get-Item -LiteralPath $zipPath).Length
 

@@ -24,7 +24,7 @@ class AppUpdateService {
   static const networkTimeout = Duration(seconds: 8);
   static const currentVersion = String.fromEnvironment(
     'APP_VERSION',
-    defaultValue: '1.0.3',
+    defaultValue: '1.0.7',
   );
 
   final HttpClient? _httpClient;
@@ -176,13 +176,36 @@ class AppUpdateService {
     }
     final runnerPath =
         '${runnerDir.path}${Platform.pathSeparator}RunUpdate-${DateTime.now().millisecondsSinceEpoch}.cmd';
+    final readySignalPath =
+        '${runnerDir.path}${Platform.pathSeparator}UpdaterReady-${DateTime.now().millisecondsSinceEpoch}.signal';
+    final logDir = Directory(
+      '${_localAppDataPath()}${Platform.pathSeparator}$stableKey${Platform.pathSeparator}UpdateLogs',
+    );
+    if (!await logDir.exists()) {
+      await logDir.create(recursive: true);
+    }
+    final launchLogPath =
+        '${logDir.path}${Platform.pathSeparator}UpdaterLaunch-${DateTime.now().millisecondsSinceEpoch}.log';
+    final readySignal = File(readySignalPath);
+    if (await readySignal.exists()) {
+      await readySignal.delete();
+    }
     final runner = File(runnerPath);
     await runner.writeAsString(
       [
         '@echo off',
+        'setlocal EnableExtensions',
         'chcp 65001 >nul',
-        'powershell.exe -NoProfile -ExecutionPolicy Bypass -File "${_escape(scriptPath)}" -AppProcessId "$pid" -InstallDir "${_escape(installDir)}" -PackagePath "${_escape(download.packagePath)}" -ExpectedSha256 "${download.asset.sha256}" -ExeRelativePath "$entryExe" -ToolboxStableKey "$stableKey" -TargetVersion "${download.manifest.version}"',
+        'set "LAUNCH_LOG=${_escape(launchLogPath)}"',
+        'echo BlueprintBridge updater launcher> "%LAUNCH_LOG%"',
+        'echo InstallDir: ${_escape(installDir)}>> "%LAUNCH_LOG%"',
+        'echo PackagePath: ${_escape(download.packagePath)}>> "%LAUNCH_LOG%"',
+        'echo ReadySignalPath: ${_escape(readySignalPath)}>> "%LAUNCH_LOG%"',
+        'where powershell.exe>> "%LAUNCH_LOG%" 2>&1',
+        'powershell.exe -NoProfile -ExecutionPolicy Bypass -File "${_escape(scriptPath)}" -AppProcessId "$pid" -InstallDir "${_escape(installDir)}" -PackagePath "${_escape(download.packagePath)}" -ExpectedSha256 "${download.asset.sha256}" -ExeRelativePath "$entryExe" -ToolboxStableKey "$stableKey" -TargetVersion "${download.manifest.version}" -ReadySignalPath "${_escape(readySignalPath)}" >> "%LAUNCH_LOG%" 2>&1',
+        'echo PowerShellExitCode: %ERRORLEVEL%>> "%LAUNCH_LOG%"',
       ].join('\r\n'),
+      encoding: utf8,
     );
 
     await Process.start(
@@ -191,7 +214,25 @@ class AppUpdateService {
       mode: ProcessStartMode.detached,
       workingDirectory: installDir,
     );
+    await _waitForUpdaterReady(readySignal, launchLogPath);
     exit(0);
+  }
+
+  Future<void> _waitForUpdaterReady(File signal, String launchLogPath) async {
+    final deadline = DateTime.now().add(const Duration(seconds: 90));
+    while (DateTime.now().isBefore(deadline)) {
+      if (await signal.exists()) {
+        final content = await signal.readAsString();
+        if (content.contains('READY')) {
+          return;
+        }
+        if (content.contains('FAILED')) {
+          throw StateError('热更新预检失败。请查看日志：$launchLogPath');
+        }
+      }
+      await Future<void>.delayed(const Duration(milliseconds: 250));
+    }
+    throw TimeoutException('热更新预检超时。请查看日志：$launchLogPath');
   }
 
   Future<String> _getString(String url) async {
@@ -336,10 +377,16 @@ class AppUpdateService {
   }
 
   Future<String> _sha256(File file) async {
+    final escapedPath = file.path.replaceAll("'", "''");
+    final command =
+        "\$stream = [System.IO.File]::OpenRead('$escapedPath'); "
+        "\$algorithm = [System.Security.Cryptography.SHA256]::Create(); "
+        "try { [System.BitConverter]::ToString(\$algorithm.ComputeHash(\$stream)).Replace('-', '').ToLowerInvariant() } "
+        "finally { \$algorithm.Dispose(); \$stream.Dispose() }";
     final result = await Process.run('powershell.exe', [
       '-NoProfile',
       '-Command',
-      "(Get-FileHash -LiteralPath '${file.path.replaceAll("'", "''")}' -Algorithm SHA256).Hash.ToLowerInvariant()",
+      command,
     ]);
     if (result.exitCode != 0) {
       throw StateError('计算 SHA-256 失败：${result.stderr}');
